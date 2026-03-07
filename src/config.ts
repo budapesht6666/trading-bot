@@ -1,7 +1,7 @@
 export const config = {
   bybit: {
-    apiKey: '5hMY8QX7ULdUzHSAUn',
-    apiSecret: 'eJjsYthcbd5pZNGPydWy0MjQhokdnVOWX8jm',
+    apiKey: 'OOO0sf2FmHqtYcdn3Z',
+    apiSecret: 'AggMjm9kYCXa3L1Bf9dhK3fYnxvj0NrgqRW1',
     baseUrl: 'https://api-demo.bybit.com',
     demo: true,
   },
