@@ -23,6 +23,10 @@ export declare const config: {
         takeProfitPct: number;
         topPairsCount: number;
         timeframes: readonly ["15", "60", "240"];
+        emaPeriod: number;
+        maxConcurrentPositions: number;
+        maxTradesPerDay: number;
+        maxDailyDrawdownPct: number;
     };
     logging: {
         level: "debug" | "info" | "warn" | "error";

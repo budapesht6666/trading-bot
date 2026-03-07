@@ -9,22 +9,27 @@
  *   * /15 * * * * cd /home/dorozhkin/trading-bot && node dist/index.js --once >> /var/log/trading-bot.log 2>&1
  */
 
-import { getTopPairs } from './bybit';
+import { getTopPairs, TickerInfo } from './bybit';
 import { runStrategy } from './strategy';
 import { sendSignalNotification, sendErrorNotification, sendStartNotification, sendSummaryNotification } from './telegram';
 import { config } from './config';
 import { logger } from './logger';
 import { syncWithBybit } from './positions';
+import { runBacktest, printBacktestResults } from './backtest';
 
 async function main(): Promise<void> {
   const runOnce = process.argv.includes('--once');
+  const runBacktestCli = process.argv.includes('--backtest');
 
   logger.info('╔══════════════════════════════════════╗');
   logger.info('║   RSI Divergence Bot — Bybit Demo    ║');
   logger.info('╚══════════════════════════════════════╝');
-  logger.info(`Mode: ${runOnce ? 'single run' : 'continuous'}`);
+  logger.info(`Mode: ${runOnce ? 'single run' : runBacktestCli ? 'backtest' : 'continuous'}`);
 
-  if (runOnce) {
+  if (runBacktestCli) {
+    await runBacktestCLI();
+    process.exit(0);
+  } else if (runOnce) {
     await runCycle();
     process.exit(0);
   } else {
@@ -78,6 +83,24 @@ async function runCycle(): Promise<void> {
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function runBacktestCLI(): Promise<void> {
+  // Parse args: --backtest SYMBOL [TIMEFRAME] [DAYS]
+  const args = process.argv.slice(2);
+  const symbol = args[1] || 'BTCUSDT';
+  const timeframe = (args[2] as '15' | '60' | '240') || '60';
+  const days = parseInt(args[3]) || 180;
+
+  logger.info(`\n🚀 Starting backtest: ${symbol} ${timeframe}m ${days} days`);
+
+  try {
+    const result = await runBacktest(symbol, timeframe, days);
+    printBacktestResults(symbol, result);
+  } catch (err) {
+    logger.error('Backtest failed', err);
+    process.exit(1);
+  }
 }
 
 // Run

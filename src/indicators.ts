@@ -1,6 +1,52 @@
 import { Candle } from './bybit';
 
 /**
+ * Calculate Exponential Moving Average
+ */
+export function calculateEMA(candles: Candle[], period: number): number[] {
+  if (candles.length < period) {
+    return [];
+  }
+
+  const closes = candles.map((c) => c.close);
+  const ema: number[] = [];
+  
+  // First EMA is SMA
+  let sum = 0;
+  for (let i = 0; i < period; i++) {
+    sum += closes[i];
+    ema.push(NaN); // Pad before we have enough data
+  }
+  
+  const multiplier = 2 / (period + 1);
+  let currentEma = sum / period;
+  
+  for (let i = period; i < closes.length; i++) {
+    currentEma = (closes[i] - currentEma) * multiplier + currentEma;
+    ema.push(currentEma);
+  }
+  
+  return ema;
+}
+
+/**
+ * Check if price is above EMA (bullish trend) or below (bearish)
+ */
+export function getTrendDirection(candles: Candle[], emaPeriod: number): 'bullish' | 'bearish' | null {
+  const ema = calculateEMA(candles, emaPeriod);
+  const validEma = ema.filter((v) => !isNaN(v));
+  
+  if (validEma.length === 0) return null;
+  
+  const currentPrice = candles[candles.length - 1].close;
+  const currentEma = validEma[validEma.length - 1];
+  
+  if (currentPrice > currentEma) return 'bullish';
+  if (currentPrice < currentEma) return 'bearish';
+  return null;
+}
+
+/**
  * Calculate RSI using Wilder's smoothing method
  */
 export function calculateRSI(candles: Candle[], period = 14): number[] {

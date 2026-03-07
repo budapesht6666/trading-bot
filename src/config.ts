@@ -26,6 +26,12 @@ export const config = {
     takeProfitPct: 4,         // % from entry price
     topPairsCount: 30,
     timeframes: ['15', '60', '240'] as const, // 15m, 1h, 4h in Bybit format
+    emaPeriod: 50,           // EMA period for trend filter
+    
+    // Multi-pair settings
+    maxConcurrentPositions: 3,  // Max open positions at once
+    maxTradesPerDay: 10,        // Max trades per day
+    maxDailyDrawdownPct: 5,     // Stop trading if drawdown > 5%
   },
 
   logging: {

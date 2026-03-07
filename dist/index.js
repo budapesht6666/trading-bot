@@ -15,13 +15,20 @@ const strategy_1 = require("./strategy");
 const telegram_1 = require("./telegram");
 const config_1 = require("./config");
 const logger_1 = require("./logger");
+const positions_1 = require("./positions");
+const backtest_1 = require("./backtest");
 async function main() {
     const runOnce = process.argv.includes('--once');
+    const runBacktestCli = process.argv.includes('--backtest');
     logger_1.logger.info('╔══════════════════════════════════════╗');
     logger_1.logger.info('║   RSI Divergence Bot — Bybit Demo    ║');
     logger_1.logger.info('╚══════════════════════════════════════╝');
-    logger_1.logger.info(`Mode: ${runOnce ? 'single run' : 'continuous'}`);
-    if (runOnce) {
+    logger_1.logger.info(`Mode: ${runOnce ? 'single run' : runBacktestCli ? 'backtest' : 'continuous'}`);
+    if (runBacktestCli) {
+        await runBacktestCLI();
+        process.exit(0);
+    }
+    else if (runOnce) {
         await runCycle();
         process.exit(0);
     }
@@ -39,6 +46,8 @@ async function runCycle() {
     const startTime = Date.now();
     logger_1.logger.info(`\n⏰ Cycle started at ${new Date().toISOString()}`);
     try {
+        // Step 0: Sync positions with Bybit (remove closed positions)
+        await (0, positions_1.syncWithBybit)();
         // Step 1: Get top pairs by volume
         const topPairs = await (0, bybit_1.getTopPairs)(config_1.config.strategy.topPairsCount);
         logger_1.logger.info(`Top pairs fetched: ${topPairs.slice(0, 5).map((p) => p.symbol).join(', ')}...`);
@@ -68,6 +77,22 @@ async function runCycle() {
 }
 function sleep(ms) {
     return new Promise((resolve) => setTimeout(resolve, ms));
+}
+async function runBacktestCLI() {
+    // Parse args: --backtest SYMBOL [TIMEFRAME] [DAYS]
+    const args = process.argv.slice(2);
+    const symbol = args[1] || 'BTCUSDT';
+    const timeframe = args[2] || '60';
+    const days = parseInt(args[3]) || 180;
+    logger_1.logger.info(`\n🚀 Starting backtest: ${symbol} ${timeframe}m ${days} days`);
+    try {
+        const result = await (0, backtest_1.runBacktest)(symbol, timeframe, days);
+        (0, backtest_1.printBacktestResults)(symbol, result);
+    }
+    catch (err) {
+        logger_1.logger.error('Backtest failed', err);
+        process.exit(1);
+    }
 }
 // Run
 main().catch((err) => {

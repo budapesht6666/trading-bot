@@ -5,6 +5,8 @@ const bybit_1 = require("./bybit");
 const indicators_1 = require("./indicators");
 const config_1 = require("./config");
 const logger_1 = require("./logger");
+const positions_1 = require("./positions");
+const daily_stats_1 = require("./daily-stats");
 /**
  * Analyze a single symbol across all configured timeframes
  */
@@ -47,6 +49,8 @@ async function analyzeSymbol(symbol) {
     if (!direction) {
         return null;
     }
+    // NOTE: EMA trend filter removed - it was blocking too many trades
+    // RSI divergence predicts reversal, so filtering by trend was counterproductive
     const strength = confirmedTfs.length >= 3 ? 'strong' : 'weak';
     // Get current price (use last candle close from 15m)
     const recentCandles = await (0, bybit_1.getCandles)(symbol, '15', 1);
@@ -102,12 +106,26 @@ async function executeTrade(signal) {
 }
 /**
  * Main strategy runner — analyzes all top pairs and executes trades
+ * Multi-pair mode: analyzes all pairs first, then executes best signals
  */
 async function runStrategy(topPairs) {
-    const signals = [];
-    const executedSymbols = new Set();
+    // Check daily limits
+    const daily = (0, daily_stats_1.getDailyStats)();
+    const tradeCheck = (0, daily_stats_1.canTradeToday)();
+    if (!tradeCheck.allowed) {
+        logger_1.logger.info(`🚫 Cannot trade today: ${tradeCheck.reason}`);
+        logger_1.logger.info(`   Daily stats: ${daily.trades} trades, $${daily.profit.toFixed(2)} P/L`);
+        return [];
+    }
+    // Load current positions to know available slots
+    const openPositions = (0, positions_1.loadPositions)();
+    const currentPositions = openPositions.length;
+    const maxPositions = config_1.config.strategy.maxConcurrentPositions;
+    const availableSlots = Math.max(0, maxPositions - currentPositions);
     logger_1.logger.info(`\n${'='.repeat(60)}`);
     logger_1.logger.info(`Analyzing ${topPairs.length} pairs for RSI divergence...`);
+    logger_1.logger.info(`📊 Daily: ${daily.trades}/${config_1.config.strategy.maxTradesPerDay} trades | ` +
+        `Positions: ${currentPositions}/${maxPositions} open`);
     logger_1.logger.info(`${'='.repeat(60)}`);
     // Fetch balance once upfront
     let balance = null;
@@ -117,16 +135,17 @@ async function runStrategy(topPairs) {
     }
     catch (err) {
         logger_1.logger.error('Could not fetch balance', err);
-        // Continue analysis even without balance (won't place orders)
     }
+    // Phase 1: Collect ALL signals (don't execute yet)
+    const pendingSignals = [];
     for (const pair of topPairs) {
-        if (executedSymbols.has(pair.symbol))
+        // Skip if already have position
+        if ((0, positions_1.hasOpenPosition)(pair.symbol))
             continue;
         logger_1.logger.info(`\nAnalyzing ${pair.symbol} (vol24h: $${(pair.volume24h / 1e6).toFixed(1)}M)`);
         try {
             const signal = await analyzeSymbol(pair.symbol);
             if (!signal) {
-                logger_1.logger.info(`  ${pair.symbol}: No divergence signal`);
                 continue;
             }
             logger_1.logger.info(`  ✨ SIGNAL: ${signal.direction.toUpperCase()} | ` +
@@ -136,32 +155,56 @@ async function runStrategy(topPairs) {
                 const positionUsd = (balance.totalEquity * config_1.config.strategy.positionSizePct) / 100;
                 signal.qty = positionUsd / signal.entryPrice;
             }
-            else {
-                logger_1.logger.warn('Skipping trade execution: no balance info');
-                signals.push(signal);
-                continue;
-            }
-            // Execute trade
-            try {
-                const executed = await executeTrade(signal);
-                signals.push(executed);
-                executedSymbols.add(pair.symbol);
-                logger_1.logger.info(`  ✅ Trade executed: ${executed.orderId}`);
-            }
-            catch (err) {
-                logger_1.logger.error(`  ❌ Trade failed for ${signal.symbol}`, err);
-                // Still include signal (without orderId) for notifications
-                signals.push(signal);
-            }
+            pendingSignals.push(signal);
         }
         catch (err) {
             logger_1.logger.error(`Error analyzing ${pair.symbol}`, err);
         }
-        // Small delay between pairs to avoid hammering SSH
-        await sleep(500);
+        // Small delay between pairs
+        await sleep(300);
+    }
+    // Phase 2: Execute best signals based on available slots
+    const signals = [];
+    if (pendingSignals.length > 0) {
+        // Sort by strength (strong > weak)
+        pendingSignals.sort((a, b) => {
+            const strengthOrder = { strong: 2, weak: 1 };
+            return strengthOrder[b.strength] - strengthOrder[a.strength];
+        });
+        const toExecute = pendingSignals.slice(0, availableSlots);
+        logger_1.logger.info(`\n📋 Found ${pendingSignals.length} signals, executing ${toExecute.length}...`);
+        for (const signal of toExecute) {
+            // Check trade limit again
+            const check = (0, daily_stats_1.canTradeToday)();
+            if (!check.allowed) {
+                logger_1.logger.info(`  ⏹️ Daily limit reached, stopping execution`);
+                break;
+            }
+            try {
+                const executed = await executeTrade(signal);
+                // Save position
+                const position = {
+                    symbol: executed.symbol,
+                    direction: executed.direction,
+                    entryPrice: executed.entryPrice,
+                    qty: executed.qty,
+                    orderId: executed.orderId,
+                    openedAt: new Date().toISOString(),
+                };
+                (0, positions_1.addPosition)(position);
+                // Record trade in daily stats
+                (0, daily_stats_1.recordTrade)(0); // PnL will be calculated when position closes
+                signals.push(executed);
+                logger_1.logger.info(`  ✅ Trade executed: ${executed.orderId}`);
+            }
+            catch (err) {
+                logger_1.logger.error(`  ❌ Trade failed for ${signal.symbol}`, err);
+                signals.push(signal);
+            }
+        }
     }
     logger_1.logger.info(`\n${'='.repeat(60)}`);
-    logger_1.logger.info(`Strategy complete. Signals found: ${signals.length}`);
+    logger_1.logger.info(`Strategy complete. Trades executed: ${signals.length}/${pendingSignals.length}`);
     logger_1.logger.info(`${'='.repeat(60)}\n`);
     return signals;
 }

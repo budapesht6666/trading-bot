@@ -3,8 +3,8 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.config = void 0;
 exports.config = {
     bybit: {
-        apiKey: '5hMY8QX7ULdUzHSAUn',
-        apiSecret: 'eJjsYthcbd5pZNGPydWy0MjQhokdnVOWX8jm',
+        apiKey: 'OOO0sf2FmHqtYcdn3Z',
+        apiSecret: 'AggMjm9kYCXa3L1Bf9dhK3fYnxvj0NrgqRW1',
         baseUrl: 'https://api-demo.bybit.com',
         demo: true,
     },
@@ -26,6 +26,11 @@ exports.config = {
         takeProfitPct: 4, // % from entry price
         topPairsCount: 30,
         timeframes: ['15', '60', '240'], // 15m, 1h, 4h in Bybit format
+        emaPeriod: 50, // EMA period for trend filter
+        // Multi-pair settings
+        maxConcurrentPositions: 3, // Max open positions at once
+        maxTradesPerDay: 10, // Max trades per day
+        maxDailyDrawdownPct: 5, // Stop trading if drawdown > 5%
     },
     logging: {
         level: 'info',

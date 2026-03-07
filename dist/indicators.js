@@ -1,7 +1,48 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.calculateEMA = calculateEMA;
+exports.getTrendDirection = getTrendDirection;
 exports.calculateRSI = calculateRSI;
 exports.detectDivergence = detectDivergence;
+/**
+ * Calculate Exponential Moving Average
+ */
+function calculateEMA(candles, period) {
+    if (candles.length < period) {
+        return [];
+    }
+    const closes = candles.map((c) => c.close);
+    const ema = [];
+    // First EMA is SMA
+    let sum = 0;
+    for (let i = 0; i < period; i++) {
+        sum += closes[i];
+        ema.push(NaN); // Pad before we have enough data
+    }
+    const multiplier = 2 / (period + 1);
+    let currentEma = sum / period;
+    for (let i = period; i < closes.length; i++) {
+        currentEma = (closes[i] - currentEma) * multiplier + currentEma;
+        ema.push(currentEma);
+    }
+    return ema;
+}
+/**
+ * Check if price is above EMA (bullish trend) or below (bearish)
+ */
+function getTrendDirection(candles, emaPeriod) {
+    const ema = calculateEMA(candles, emaPeriod);
+    const validEma = ema.filter((v) => !isNaN(v));
+    if (validEma.length === 0)
+        return null;
+    const currentPrice = candles[candles.length - 1].close;
+    const currentEma = validEma[validEma.length - 1];
+    if (currentPrice > currentEma)
+        return 'bullish';
+    if (currentPrice < currentEma)
+        return 'bearish';
+    return null;
+}
 /**
  * Calculate RSI using Wilder's smoothing method
  */

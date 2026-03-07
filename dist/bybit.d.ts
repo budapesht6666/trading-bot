@@ -23,6 +23,13 @@ export interface WalletBalance {
     availableBalance: number;
     coin: string;
 }
+export interface OpenPosition {
+    symbol: string;
+    side: 'Buy' | 'Sell';
+    qty: number;
+    entryPrice: number;
+    orderId: string;
+}
 export declare function getTopPairs(count: number): Promise<TickerInfo[]>;
 export declare function getCandles(symbol: string, interval: string, limit?: number): Promise<Candle[]>;
 export declare function getWalletBalance(): Promise<WalletBalance>;
@@ -33,4 +40,8 @@ export declare function getSymbolInfo(symbol: string): Promise<{
     };
 }>;
 export declare function placeOrder(symbol: string, side: 'Buy' | 'Sell', qty: number, price: number, stopLoss: number, takeProfit: number): Promise<OrderResult>;
+/**
+ * Get all open positions from Bybit
+ */
+export declare function getOpenPositions(): Promise<OpenPosition[]>;
 //# sourceMappingURL=bybit.d.ts.map

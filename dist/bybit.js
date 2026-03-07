@@ -38,6 +38,7 @@ exports.getCandles = getCandles;
 exports.getWalletBalance = getWalletBalance;
 exports.getSymbolInfo = getSymbolInfo;
 exports.placeOrder = placeOrder;
+exports.getOpenPositions = getOpenPositions;
 const node_ssh_1 = require("node-ssh");
 const crypto = __importStar(require("crypto"));
 const config_1 = require("./config");
@@ -196,5 +197,27 @@ async function placeOrder(symbol, side, qty, price, stopLoss, takeProfit) {
         qty: roundedQty,
         price,
     };
+}
+/**
+ * Get all open positions from Bybit
+ */
+async function getOpenPositions() {
+    logger_1.logger.info('Fetching open positions from Bybit...');
+    const data = await bybitRequest('GET', '/v5/position/positions', {
+        category: 'linear',
+        settleCoin: 'USDT',
+    }, true);
+    // Filter for open positions (not closed)
+    const openPositions = data.result.list
+        .filter(p => !p.isClosed && parseFloat(p.qty) > 0)
+        .map(p => ({
+        symbol: p.symbol,
+        side: p.side,
+        qty: parseFloat(p.qty),
+        entryPrice: parseFloat(p.avgEntryPrice),
+        orderId: p.orderId,
+    }));
+    logger_1.logger.info(`Found ${openPositions.length} open positions on Bybit`);
+    return openPositions;
 }
 //# sourceMappingURL=bybit.js.map

@@ -7,6 +7,8 @@ exports.sendSummaryNotification = sendSummaryNotification;
 const node_ssh_1 = require("node-ssh");
 const config_1 = require("./config");
 const logger_1 = require("./logger");
+const positions_1 = require("./positions");
+const SEPARATOR = '\n' + '═'.repeat(30) + '\n';
 /**
  * Send a message via Telegram Bot API through SSH (due to geo restrictions)
  */
@@ -69,6 +71,7 @@ async function sendSignalNotification(signal) {
         `🛑 SL: $${signal.stopLoss.toFixed(4)} (${slPct})`,
         `📈 Размер: ${signal.qty} ${coinName} (~$${sizeUsd.toFixed(0)})`,
         signal.orderId ? `🔑 Order ID: ${signal.orderId}` : '⏳ Ордер размещается...',
+        SEPARATOR,
     ].join('\n');
     await sendMessage(text);
 }
@@ -91,12 +94,23 @@ async function sendStartNotification() {
     }
 }
 async function sendSummaryNotification(analyzed, signals) {
-    const text = [
-        `📋 <b>Итоги сканирования</b>`,
-        `🔍 Проанализировано пар: ${analyzed}`,
-        `📡 Сигналов найдено: ${signals}`,
+    const positions = (0, positions_1.getOpenPositions)();
+    const lines = [
+        `📋 <b>Открытые позиции</b> (${positions.length})`,
         `⏰ ${new Date().toISOString()}`,
-    ].join('\n');
+    ];
+    if (positions.length === 0) {
+        lines.push('Нет открытых позиций');
+    }
+    else {
+        for (const pos of positions) {
+            const emoji = pos.direction === 'long' ? '🟢' : '🔴';
+            const coin = pos.symbol.replace('USDT', '');
+            const pnl = pos.direction === 'long' ? '+4%' : '-4%';
+            lines.push(`${emoji} ${pos.symbol} | ${pos.qty.toFixed(2)} ${coin} | TP: ${pnl}`);
+        }
+    }
+    const text = lines.join('\n');
     try {
         await sendMessage(text);
     }

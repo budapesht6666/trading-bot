@@ -12,6 +12,7 @@ export interface TradeSignal {
 }
 /**
  * Main strategy runner — analyzes all top pairs and executes trades
+ * Multi-pair mode: analyzes all pairs first, then executes best signals
  */
 export declare function runStrategy(topPairs: TickerInfo[]): Promise<TradeSignal[]>;
 //# sourceMappingURL=strategy.d.ts.map

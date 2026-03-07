@@ -1,5 +1,13 @@
 import { Candle } from './bybit';
 /**
+ * Calculate Exponential Moving Average
+ */
+export declare function calculateEMA(candles: Candle[], period: number): number[];
+/**
+ * Check if price is above EMA (bullish trend) or below (bearish)
+ */
+export declare function getTrendDirection(candles: Candle[], emaPeriod: number): 'bullish' | 'bearish' | null;
+/**
  * Calculate RSI using Wilder's smoothing method
  */
 export declare function calculateRSI(candles: Candle[], period?: number): number[];
