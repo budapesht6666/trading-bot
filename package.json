@@ -1,0 +1,22 @@
+{
+  "name": "trading-bot",
+  "version": "1.0.0",
+  "description": "RSI Divergence Trading Bot for Bybit Demo",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "dev": "ts-node src/index.ts",
+    "run-once": "ts-node src/index.ts --once"
+  },
+  "dependencies": {
+    "axios": "^1.13.6",
+    "crypto": "^1.0.1",
+    "node-ssh": "^13.2.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.19.37",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.9.3"
+  }
+}
