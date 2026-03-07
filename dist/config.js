@@ -18,15 +18,19 @@ exports.config = {
         chatId: '7517318171',
     },
     strategy: {
-        rsiPeriod: 14,
+        rsiPeriod: 21, // оптимально для альтов (вместо 14)
+        rsiOversold: 25, // уровень перепроданности (вместо 30)
+        rsiOverbought: 75, // уровень перекупленности (вместо 70)
         candlesLookback: 100,
         minTimeframesForEntry: 2,
         positionSizePct: 5, // % of USDT balance
         stopLossPct: 2, // % from entry price
-        takeProfitPct: 4, // % from entry price
+        takeProfitPct: 6, // % from entry price (вместо 4)
         topPairsCount: 30,
         timeframes: ['15', '60', '240'], // 15m, 1h, 4h in Bybit format
         emaPeriod: 50, // EMA period for trend filter
+        // Focus pairs - приоритетные пары для торговли
+        focusPairs: ['XRPUSDT', 'SOLUSDT', 'ETHUSDT'],
         // Multi-pair settings
         maxConcurrentPositions: 3, // Max open positions at once
         maxTradesPerDay: 10, // Max trades per day

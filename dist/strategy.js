@@ -17,23 +17,37 @@ async function analyzeSymbol(symbol) {
         try {
             const candles = await (0, bybit_1.getCandles)(symbol, tf, config_1.config.strategy.candlesLookback);
             const divergence = (0, indicators_1.detectDivergence)(candles, config_1.config.strategy.rsiPeriod);
+            // MACD confirmation check
+            let macdConfirmed = false;
+            if (divergence.type) {
+                const macdDivergence = (0, indicators_1.detectMACDDivergence)(candles);
+                const macdCross = (0, indicators_1.getMACross)(candles);
+                // MACD confirms if: divergence in same direction OR crossover in same direction
+                const macdDivMatch = macdDivergence.type === divergence.type;
+                const macdCrossMatch = macdCross === divergence.type;
+                macdConfirmed = macdDivMatch || macdCrossMatch;
+                if (macdConfirmed) {
+                    logger_1.logger.info(`  ${symbol} ${tf}m: RSI ${divergence.type} + MACD confirmed | ` +
+                        `MACD div: ${macdDivergence.type || 'none'}, Cross: ${macdCross || 'none'}`);
+                }
+            }
             if (divergence.type) {
                 logger_1.logger.info(`  ${symbol} ${tf}m: ${divergence.type} divergence | ` +
                     `Price: ${divergence.priceSwing1.toFixed(4)} → ${divergence.priceSwing2.toFixed(4)} | ` +
                     `RSI: ${divergence.rsiSwing1.toFixed(1)} → ${divergence.rsiSwing2.toFixed(1)}`);
             }
-            analyses.push({ timeframe: tf, divergenceType: divergence.type });
+            analyses.push({ timeframe: tf, divergenceType: divergence.type, macdConfirmed });
         }
         catch (err) {
             logger_1.logger.warn(`Failed to analyze ${symbol} on ${tf}: ${err instanceof Error ? err.message : String(err)}`);
         }
     }
-    // Count confirmations per direction
+    // Count confirmations per direction (only those with MACD confirmation)
     const bullishTfs = analyses
-        .filter((a) => a.divergenceType === 'bullish')
+        .filter((a) => a.divergenceType === 'bullish' && a.macdConfirmed)
         .map((a) => a.timeframe);
     const bearishTfs = analyses
-        .filter((a) => a.divergenceType === 'bearish')
+        .filter((a) => a.divergenceType === 'bearish' && a.macdConfirmed)
         .map((a) => a.timeframe);
     const minTfs = config_1.config.strategy.minTimeframesForEntry;
     let confirmedTfs = [];
@@ -48,6 +62,22 @@ async function analyzeSymbol(symbol) {
     }
     if (!direction) {
         return null;
+    }
+    // --- MACD Confirmation Filter ---
+    try {
+        const macdCandles = await (0, bybit_1.getCandles)(symbol, '60', 50);
+        const macross = (0, indicators_1.getMACross)(macdCandles);
+        // Require MACD confirmation: cross in same direction as RSI signal
+        const macdConfirm = direction === 'long' && macross === 'bullish' ||
+            direction === 'short' && macross === 'bearish';
+        if (!macdConfirm) {
+            logger_1.logger.info(`  ${symbol}: Skipping ${direction} — no MACD confirmation (${macross})`);
+            return null;
+        }
+        logger_1.logger.info(`  ${symbol}: MACD confirms ${direction} signal`);
+    }
+    catch (err) {
+        logger_1.logger.warn(`Could not check MACD for ${symbol}: ${err}`);
     }
     // NOTE: EMA trend filter removed - it was blocking too many trades
     // RSI divergence predicts reversal, so filtering by trend was counterproductive

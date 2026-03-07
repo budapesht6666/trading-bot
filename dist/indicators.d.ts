@@ -19,6 +19,28 @@ export interface DivergenceResult {
     rsiSwing1: number;
     rsiSwing2: number;
 }
+export interface MACDResult {
+    macdLine: number[];
+    signalLine: number[];
+    histogram: number[];
+}
+/**
+ * Calculate MACD (Moving Average Convergence Divergence)
+ * Returns { macdLine, signalLine, histogram }
+ */
+export declare function calculateMACD(candles: Candle[], fastPeriod?: number, slowPeriod?: number, signalPeriod?: number): MACDResult;
+export type MACDCrossType = 'bullish' | 'bearish' | null;
+/**
+ * Get MACD crossover direction
+ * Returns 'bullish' (MACD crosses above signal), 'bearish' (MACD crosses below), or null
+ */
+export declare function getMACross(candles: Candle[]): MACDCrossType;
+/**
+ * Detect MACD divergence (similar to RSI divergence)
+ * Price makes lower low + MACD makes higher low = bullish
+ * Price makes higher high + MACD makes lower high = bearish
+ */
+export declare function detectMACDDivergence(candles: Candle[]): DivergenceResult;
 /**
  * Detect RSI divergence on given candles
  * Returns null if no divergence found, 'bullish' or 'bearish' otherwise

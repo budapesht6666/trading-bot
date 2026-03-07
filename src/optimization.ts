@@ -1,6 +1,6 @@
 import { getCandles, Candle } from './bybit';
-import { detectDivergence, DivergenceType, getTrendDirection, detectMACDDivergence, getMACross } from './indicators';
-import { config, Timeframe } from './config';
+import { detectDivergence, DivergenceType } from './indicators';
+import { Timeframe } from './config';
 
 export interface BacktestResult {
   totalTrades: number;
@@ -36,24 +36,31 @@ interface SimPosition {
   entryIndex: number;
 }
 
+interface OptimizationParams {
+  rsiPeriod: number;
+  stopLossPct: number;
+  takeProfitPct: number;
+}
+
+export interface OptimizationResult extends OptimizationParams {
+  totalTrades: number;
+  winRate: number;
+  netProfit: number;
+  maxDrawdownPct: number;
+}
+
 /**
- * Run backtest on a single symbol
+ * Run backtest with custom parameters (for optimization)
  */
-export async function runBacktest(
-  symbol: string,
-  timeframe: Timeframe,
-  daysBack: number = 365
+export async function runBacktestWithParams(
+  candles: Candle[],
+  params: OptimizationParams
 ): Promise<BacktestResult> {
-  console.log(`\n📊 Backtesting ${symbol} on ${timeframe}m for ${daysBack} days...`);
-
-  // Fetch historical candles (Bybit limit is 200 per request, need to fetch in chunks)
-  const candles = await fetchHistoricalCandles(symbol, timeframe, daysBack);
-  console.log(`   Loaded ${candles.length} candles`);
-
-  if (candles.length < 200) {
-    console.log('   ⚠️ Not enough data for backtest');
-    return createEmptyResult();
-  }
+  const { rsiPeriod, stopLossPct, takeProfitPct } = params;
+  
+  const slPct = stopLossPct / 100;
+  const tpPct = takeProfitPct / 100;
+  const lookback = 100;
 
   const result: BacktestResult = {
     totalTrades: 0,
@@ -73,33 +80,20 @@ export async function runBacktest(
 
   let position: SimPosition | null = null;
   let peakEquity = 0;
-  let equity = 10000; // Start with $10k virtual balance
-  
-  // Debug counters
-  let totalDivergences = 0;
-  let filteredByTrend = 0;
-  let entries = 0;
+  let equity = 10000;
 
-  const slPct = config.strategy.stopLossPct / 100;
-  const tpPct = config.strategy.takeProfitPct / 100;
-  const rsiPeriod = config.strategy.rsiPeriod;
-  const lookback = config.strategy.candlesLookback;
-
-  // Iterate through candles (skip first N for warmup)
   for (let i = lookback + 20; i < candles.length; i++) {
     const currentCandle = candles[i];
     const currentPrice = currentCandle.close;
     const currentTime = currentCandle.openTime;
 
-    // Update equity tracking
     if (equity > peakEquity) peakEquity = equity;
-    const drawdown = (peakEquity - equity) / peakEquity;
+    const drawdown = peakEquity > 0 ? (peakEquity - equity) / peakEquity : 0;
     if (drawdown > result.maxDrawdownPct) {
       result.maxDrawdownPct = drawdown;
       result.maxDrawdown = peakEquity - equity;
     }
 
-    // Check if we need to close position (TP/SL)
     if (position) {
       let shouldClose = false;
       let exitPrice = currentPrice;
@@ -116,7 +110,7 @@ export async function runBacktest(
           exitReason = 'sl';
           shouldClose = true;
         }
-      } else { // short
+      } else {
         const pnlPct = (position.entryPrice - currentPrice) / position.entryPrice;
         if (pnlPct >= tpPct) {
           exitPrice = position.entryPrice * (1 - tpPct);
@@ -130,7 +124,6 @@ export async function runBacktest(
       }
 
       if (shouldClose || i === candles.length - 1) {
-        // Calculate P&L
         const pnl = position.direction === 'long'
           ? (exitPrice - position.entryPrice) * (equity / position.entryPrice)
           : (position.entryPrice - exitPrice) * (equity / position.entryPrice);
@@ -141,7 +134,7 @@ export async function runBacktest(
           ? ((exitPrice - position.entryPrice) / position.entryPrice) * 100
           : ((position.entryPrice - exitPrice) / position.entryPrice) * 100;
 
-        const trade: BacktestTrade = {
+        result.trades.push({
           entryTime: position.entryTime,
           exitTime: currentTime,
           direction: position.direction,
@@ -150,9 +143,8 @@ export async function runBacktest(
           pnl,
           pnlPct,
           exitReason: i === candles.length - 1 ? 'end' : exitReason,
-        };
+        });
 
-        result.trades.push(trade);
         result.totalTrades++;
 
         if (pnl > 0) {
@@ -167,70 +159,34 @@ export async function runBacktest(
       }
     }
 
-    // If no position, check for entry signal
     if (!position) {
-      // Get candles up to current point
       const historicalCandles = candles.slice(0, i + 1);
       const divergence = detectDivergence(historicalCandles, rsiPeriod);
 
       if (divergence.type) {
-        // MACD confirmation check
-        const macdDivergence = detectMACDDivergence(historicalCandles);
-        const macdCross = getMACross(historicalCandles);
-        
-        const macdDivMatch = macdDivergence.type === divergence.type;
-        const macdCrossMatch = macdCross === divergence.type;
-        const macdConfirmed = macdDivMatch || macdCrossMatch;
-        
-        if (!macdConfirmed) {
-          // Skip entry if MACD doesn't confirm
-          continue;
-        }
-        
-        totalDivergences++;
-        const signalDirection = divergence.type === 'bullish' ? 'long' : 'short';
-        
-        entries++;
-        // Simple entry: enter at current price
         position = {
-          direction: signalDirection,
+          direction: divergence.type === 'bullish' ? 'long' : 'short',
           entryPrice: currentPrice,
           entryTime: currentTime,
           entryIndex: i,
         };
       }
     }
-
-    // Progress update every 10%
-    if (i % Math.floor(candles.length / 10) === 0) {
-      const progress = Math.floor((i / candles.length) * 100);
-      console.log(`   Progress: ${progress}% | Equity: $${equity.toFixed(2)}`);
-    }
   }
 
-  // Finalize results
   result.netProfit = equity - 10000;
   result.winRate = result.totalTrades > 0 
     ? (result.winningTrades / result.totalTrades) * 100 
     : 0;
-  result.avgWin = result.winningTrades > 0 
-    ? result.totalProfit / result.winningTrades 
-    : 0;
-  result.avgLoss = result.losingTrades > 0 
-    ? result.totalLoss / result.losingTrades 
-    : 0;
-  result.avgTrade = result.totalTrades > 0 
-    ? result.netProfit / result.totalTrades 
-    : 0;
-
-  // Debug output
-  console.log(`   Debug: Total divergences: ${totalDivergences}, Filtered: ${filteredByTrend}, Entered: ${entries}`);
+  result.avgWin = result.winningTrades > 0 ? result.totalProfit / result.winningTrades : 0;
+  result.avgLoss = result.losingTrades > 0 ? result.totalLoss / result.losingTrades : 0;
+  result.avgTrade = result.totalTrades > 0 ? result.netProfit / result.totalTrades : 0;
 
   return result;
 }
 
 /**
- * Fetch historical candles from Binance US (not geo-blocked)
+ * Fetch historical candles
  */
 async function fetchHistoricalCandles(
   symbol: string,
@@ -240,28 +196,24 @@ async function fetchHistoricalCandles(
   const now = Date.now();
   const startTime = now - daysBack * 24 * 60 * 60 * 1000;
 
-  const binanceInterval = timeframe === '15' ? '15m' : timeframe === '60' ? '1h' : '4h';
-  const allCandles: Candle[] = [];
+  const intervalMap: Record<string, string> = {
+    '15': '15m',
+    '60': '1h',
+    '240': '4h',
+  };
+  const binanceInterval = intervalMap[timeframe] || '1h';
   
+  const allCandles: Candle[] = [];
   let currentStartTime = startTime;
 
-  // Binance US returns max 1000 candles per request
   while (currentStartTime < now) {
     const url = `https://api.binance.us/api/v3/klines?symbol=${symbol}&interval=${binanceInterval}&limit=1000&startTime=${currentStartTime}`;
     
     const res = await fetch(url);
-    
-    if (!res.ok) {
-      const text = await res.text();
-      console.error(`API error ${res.status}:`, text.substring(0, 200));
-      break;
-    }
+    if (!res.ok) break;
     
     const data = await res.json() as (string | number)[][];
-
-    if (data.length === 0) {
-      break;
-    }
+    if (data.length === 0) break;
 
     const candles: Candle[] = data.map((c) => ({
       openTime: Number(c[0]),
@@ -273,58 +225,100 @@ async function fetchHistoricalCandles(
     }));
 
     allCandles.push(...candles);
-
-    if (candles.length < 1000) {
-      break;
-    }
-    
-    // Move to next batch
+    if (candles.length < 1000) break;
     currentStartTime = candles[candles.length - 1].openTime + 1;
-
-    // Safety limit
     if (allCandles.length > 5000) break;
   }
 
   return allCandles.sort((a, b) => a.openTime - b.openTime);
 }
 
-function createEmptyResult(): BacktestResult {
-  return {
-    totalTrades: 0,
-    winningTrades: 0,
-    losingTrades: 0,
-    winRate: 0,
-    totalProfit: 0,
-    totalLoss: 0,
-    netProfit: 0,
-    maxDrawdown: 0,
-    maxDrawdownPct: 0,
-    avgWin: 0,
-    avgLoss: 0,
-    avgTrade: 0,
-    trades: [],
-  };
+/**
+ * Optimize RSI divergence strategy parameters
+ */
+export async function runOptimization(
+  symbol: string,
+  timeframe: Timeframe,
+  daysBack: number
+): Promise<OptimizationResult[]> {
+  const rsiPeriods = [7, 14, 21, 28];
+  const stopLossPcts = [1, 2, 3, 4];
+  const takeProfitPcts = [2, 4, 6, 8];
+
+  console.log(`\n🔧 Loading data for ${symbol} (${timeframe}m, ${daysBack} days)...`);
+  const candles = await fetchHistoricalCandles(symbol, timeframe, daysBack);
+  console.log(`   Loaded ${candles.length} candles`);
+  
+  if (candles.length < 200) {
+    console.log('   ⚠️ Not enough data!');
+    return [];
+  }
+
+  const results: OptimizationResult[] = [];
+  const totalCombinations = rsiPeriods.length * stopLossPcts.length * takeProfitPcts.length;
+  let current = 0;
+
+  console.log(`\n🚀 Running ${totalCombinations} parameter combinations...\n`);
+
+  for (const rsi of rsiPeriods) {
+    for (const sl of stopLossPcts) {
+      for (const tp of takeProfitPcts) {
+        current++;
+        
+        const params: OptimizationParams = { rsiPeriod: rsi, stopLossPct: sl, takeProfitPct: tp };
+        const backtestResult = await runBacktestWithParams(candles, params);
+        
+        results.push({
+          rsiPeriod: rsi,
+          stopLossPct: sl,
+          takeProfitPct: tp,
+          totalTrades: backtestResult.totalTrades,
+          winRate: backtestResult.winRate,
+          netProfit: backtestResult.netProfit,
+          maxDrawdownPct: backtestResult.maxDrawdownPct * 100,
+        });
+
+        if (current % 16 === 0) {
+          console.log(`   Progress: ${Math.floor((current / totalCombinations) * 100)}%`);
+        }
+      }
+    }
+  }
+
+  // Sort by net profit descending
+  results.sort((a, b) => b.netProfit - a.netProfit);
+
+  return results;
 }
 
 /**
- * Print backtest results nicely
+ * Print optimization results table
  */
-export function printBacktestResults(symbol: string, result: BacktestResult): void {
-  console.log(`\n${'='.repeat(50)}`);
-  console.log(`📈 Backtest Results: ${symbol}`);
-  console.log(`${'='.repeat(50)}`);
-  console.log(`Total Trades:     ${result.totalTrades}`);
-  console.log(`Win Rate:         ${result.winRate.toFixed(1)}%`);
-  console.log(`Winners:          ${result.winningTrades}`);
-  console.log(`Losers:           ${result.losingTrades}`);
-  console.log(`-${'-'.repeat(30)}`);
-  console.log(`Net Profit:       $${result.netProfit.toFixed(2)}`);
-  console.log(`Total Profit:     $${result.totalProfit.toFixed(2)}`);
-  console.log(`Total Loss:       $${result.totalLoss.toFixed(2)}`);
-  console.log(`Avg Win:          $${result.avgWin.toFixed(2)}`);
-  console.log(`Avg Loss:         $${result.avgLoss.toFixed(2)}`);
-  console.log(`Avg Trade:        $${result.avgTrade.toFixed(2)}`);
-  console.log(`-${'-'.repeat(30)}`);
-  console.log(`Max Drawdown:     $${result.maxDrawdown.toFixed(2)} (${(result.maxDrawdownPct * 100).toFixed(2)}%)`);
-  console.log(`${'='.repeat(50)}\n`);
+export function printOptimizationResults(results: OptimizationResult[], topN = 5): void {
+  console.log('\n' + '='.repeat(80));
+  console.log('📊 OPTIMIZATION RESULTS - Top ' + topN + ' Parameter Combinations');
+  console.log('='.repeat(80));
+  console.log(`\n${'Rank'.padStart(4)} | ${'RSI Period'.padStart(10)} | ${'SL %'.padStart(6)} | ${'TP %'.padStart(6)} | ${'Trades'.padStart(7)} | ${'Win Rate'.padStart(9)} | ${'Net Profit'.padStart(12)} | ${'Max DD %'.padStart(9)}`);
+  console.log('-'.repeat(80));
+
+  for (let i = 0; i < Math.min(topN, results.length); i++) {
+    const r = results[i];
+    console.log(`${(i + 1).toString().padStart(4)} | ${r.rsiPeriod.toString().padStart(10)} | ${r.stopLossPct.toString().padStart(6)} | ${r.takeProfitPct.toString().padStart(6)} | ${r.totalTrades.toString().padStart(7)} | ${r.winRate.toFixed(1).padStart(9)} | $${r.netProfit.toFixed(2).padStart(12)} | ${r.maxDrawdownPct.toFixed(2).padStart(9)}`);
+  }
+
+  console.log('='.repeat(80));
+  
+  const best = results[0];
+  console.log(`\n🏆 Best Parameters:`);
+  console.log(`   RSI Period: ${best.rsiPeriod}`);
+  console.log(`   Stop Loss: ${best.stopLossPct}%`);
+  console.log(`   Take Profit: ${best.takeProfitPct}%`);
+  console.log(`   Net Profit: $${best.netProfit.toFixed(2)}`);
+  console.log(`   Win Rate: ${best.winRate.toFixed(1)}%`);
+  console.log('');
+}
+
+// Run if executed directly
+if (require.main === module) {
+  runOptimization('ETHUSDT', '60', 90).then(printOptimizationResults);
 }

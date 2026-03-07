@@ -102,6 +102,249 @@ export interface DivergenceResult {
   rsiSwing2: number;
 }
 
+export interface MACDResult {
+  macdLine: number[];
+  signalLine: number[];
+  histogram: number[];
+}
+
+/**
+ * Calculate MACD (Moving Average Convergence Divergence)
+ * Returns { macdLine, signalLine, histogram }
+ */
+export function calculateMACD(
+  candles: Candle[],
+  fastPeriod: number = 12,
+  slowPeriod: number = 26,
+  signalPeriod: number = 9
+): MACDResult {
+  if (candles.length < slowPeriod + signalPeriod) {
+    return { macdLine: [], signalLine: [], histogram: [] };
+  }
+
+  const closes = candles.map((c) => c.close);
+  
+  // Calculate fast and slow EMAs
+  const fastEMA = calculateEMA(candles, fastPeriod);
+  const slowEMA = calculateEMA(candles, slowPeriod);
+
+  // MACD Line = Fast EMA - Slow EMA
+  const macdLine: number[] = [];
+  const validFast = fastEMA.filter((v) => !isNaN(v));
+  const validSlow = slowEMA.filter((v) => !isNaN(v));
+  
+  // Align arrays - both need valid values
+  const startIdx = slowPeriod - 1;
+  for (let i = startIdx; i < closes.length; i++) {
+    if (!isNaN(fastEMA[i]) && !isNaN(slowEMA[i])) {
+      macdLine.push(fastEMA[i] - slowEMA[i]);
+    } else {
+      macdLine.push(NaN);
+    }
+  }
+
+  // Calculate Signal Line (EMA of MACD Line)
+  const validMacd = macdLine.filter((v) => !isNaN(v));
+  const signalLine: number[] = new Array(macdLine.length).fill(NaN);
+  
+  if (validMacd.length >= signalPeriod) {
+    // Calculate EMA of MACD
+    let sum = 0;
+    let count = 0;
+    const multiplier = 2 / (signalPeriod + 1);
+    
+    // First signal value is SMA of first signalPeriod MACD values
+    for (let i = 0; i < signalPeriod; i++) {
+      if (!isNaN(macdLine[startIdx + i])) {
+        sum += macdLine[startIdx + i];
+        count++;
+      }
+    }
+    
+    if (count === signalPeriod) {
+      let currentSignal = sum / signalPeriod;
+      // Set SMA for first signalPeriod values
+      for (let i = 0; i < signalPeriod; i++) {
+        signalLine[startIdx + i] = currentSignal;
+      }
+      
+      // Calculate EMA for remaining
+      for (let i = startIdx + signalPeriod; i < macdLine.length; i++) {
+        if (!isNaN(macdLine[i])) {
+          currentSignal = (macdLine[i] - currentSignal) * multiplier + currentSignal;
+          signalLine[i] = currentSignal;
+        }
+      }
+    }
+  }
+
+  // Histogram = MACD Line - Signal Line
+  const histogram: number[] = [];
+  for (let i = 0; i < macdLine.length; i++) {
+    if (!isNaN(macdLine[i]) && !isNaN(signalLine[i])) {
+      histogram.push(macdLine[i] - signalLine[i]);
+    } else {
+      histogram.push(NaN);
+    }
+  }
+
+  return { macdLine, signalLine, histogram };
+}
+
+export type MACDCrossType = 'bullish' | 'bearish' | null;
+
+/**
+ * Get MACD crossover direction
+ * Returns 'bullish' (MACD crosses above signal), 'bearish' (MACD crosses below), or null
+ */
+export function getMACross(candles: Candle[]): MACDCrossType {
+  const { macdLine, signalLine } = calculateMACD(candles);
+  
+  // Need at least 2 values to check crossover
+  const validMacd = macdLine.filter((v) => !isNaN(v));
+  const validSignal = signalLine.filter((v) => !isNaN(v));
+  
+  if (validMacd.length < 2 || validSignal.length < 2) {
+    return null;
+  }
+
+  // Get last two valid points
+  const lastIdx = macdLine.length - 1;
+  const prevIdx = macdLine.length - 2;
+  
+  // Find indices where both have valid values
+  let lastValid = -1, prevValid = -1;
+  for (let i = lastIdx; i >= 0; i--) {
+    if (!isNaN(macdLine[i]) && !isNaN(signalLine[i])) {
+      if (lastValid === -1) lastValid = i;
+      else if (prevValid === -1) prevValid = i;
+      if (lastValid !== -1 && prevValid !== -1) break;
+    }
+  }
+
+  if (prevValid === -1) return null;
+
+  const macdNow = macdLine[lastValid];
+  const macdPrev = macdLine[prevValid];
+  const signalNow = signalLine[lastValid];
+  const signalPrev = signalLine[prevValid];
+
+  // Bullish: MACD was below signal, now above
+  const wasBelow = macdPrev < signalPrev;
+  const isAbove = macdNow > signalNow;
+  
+  // Bearish: MACD was above signal, now below
+  const wasAbove = macdPrev > signalPrev;
+  const isBelow = macdNow < signalNow;
+
+  if (wasBelow && isAbove) return 'bullish';
+  if (wasAbove && isBelow) return 'bearish';
+
+  return null;
+}
+
+/**
+ * Detect MACD divergence (similar to RSI divergence)
+ * Price makes lower low + MACD makes higher low = bullish
+ * Price makes higher high + MACD makes lower high = bearish
+ */
+export function detectMACDDivergence(candles: Candle[]): DivergenceResult {
+  const { macdLine, signalLine } = calculateMACD(candles);
+  
+  if (macdLine.length < 20) {
+    return { type: null, priceSwing1: 0, priceSwing2: 0, rsiSwing1: 0, rsiSwing2: 0 };
+  }
+
+  // Get valid (non-NaN) portion
+  const validMacd = macdLine.filter((v) => !isNaN(v));
+  const validSignal = signalLine.filter((v) => !isNaN(v));
+  
+  if (validMacd.length < 10) {
+    return { type: null, priceSwing1: 0, priceSwing2: 0, rsiSwing1: 0, rsiSwing2: 0 };
+  }
+
+  // Align candles with valid MACD
+  const startIdx = macdLine.findIndex((v) => !isNaN(v));
+  const validCandles = candles.slice(startIdx);
+  const lookWindow = Math.min(50, validCandles.length);
+  const windowStart = validCandles.length - lookWindow;
+
+  const lows = validCandles.map((c) => c.low);
+  const highs = validCandles.map((c) => c.high);
+  
+  // MACD histogram for divergence (more stable than lines)
+  const histogram: number[] = [];
+  for (let i = startIdx; i < macdLine.length; i++) {
+    if (!isNaN(macdLine[i]) && !isNaN(signalLine[i])) {
+      histogram.push(macdLine[i] - signalLine[i]);
+    }
+  }
+
+  if (histogram.length < 10) {
+    return { type: null, priceSwing1: 0, priceSwing2: 0, rsiSwing1: 0, rsiSwing2: 0 };
+  }
+
+  const windowHist = histogram.slice(windowStart - startIdx);
+  const windowLows = lows.slice(windowStart);
+  const windowHighs = highs.slice(windowStart);
+
+  // Find local minima in price and histogram for bullish divergence
+  const priceLowIdx = findLocalMinima(windowLows, 3);
+  const histLowIdx = findLocalMinima(windowHist, 3);
+
+  if (priceLowIdx.length >= 2 && histLowIdx.length >= 2) {
+    const lastPrice = priceLowIdx[priceLowIdx.length - 1];
+    const prevPrice = priceLowIdx[priceLowIdx.length - 2];
+    const lastHist = histLowIdx[histLowIdx.length - 1];
+    const prevHist = histLowIdx[histLowIdx.length - 2];
+
+    const priceLower = windowLows[lastPrice] < windowLows[prevPrice];
+    const histHigher = windowHist[lastHist] > windowHist[prevHist];
+
+    if (priceLower && histHigher) {
+      // Histogram should be in relatively oversold territory (negative but rising)
+      if (windowHist[lastHist] < 0 && windowHist[lastHist] > -0.5) {
+        return {
+          type: 'bullish',
+          priceSwing1: windowLows[prevPrice],
+          priceSwing2: windowLows[lastPrice],
+          rsiSwing1: windowHist[prevHist],
+          rsiSwing2: windowHist[lastHist],
+        };
+      }
+    }
+  }
+
+  // Find local maxima for bearish divergence
+  const priceHighIdx = findLocalMaxima(windowHighs, 3);
+  const histHighIdx = findLocalMaxima(windowHist, 3);
+
+  if (priceHighIdx.length >= 2 && histHighIdx.length >= 2) {
+    const lastPrice = priceHighIdx[priceHighIdx.length - 1];
+    const prevPrice = priceHighIdx[priceHighIdx.length - 2];
+    const lastHist = histHighIdx[histHighIdx.length - 1];
+    const prevHist = histHighIdx[histHighIdx.length - 2];
+
+    const priceHigher = windowHighs[lastPrice] > windowHighs[prevPrice];
+    const histLower = windowHist[lastHist] < windowHist[prevHist];
+
+    if (priceHigher && histLower) {
+      // Histogram should be in relatively overbought territory (positive but falling)
+      if (windowHist[lastHist] > 0 && windowHist[lastHist] < 0.5) {
+        return {
+          type: 'bearish',
+          priceSwing1: windowHighs[prevPrice],
+          priceSwing2: windowHighs[lastPrice],
+          rsiSwing1: windowHist[prevHist],
+          rsiSwing2: windowHist[lastHist],
+        };
+      }
+    }
+  }
+
+  return { type: null, priceSwing1: 0, priceSwing2: 0, rsiSwing1: 0, rsiSwing2: 0 };
+}
+
 /**
  * Find local minima indices in array
  */
