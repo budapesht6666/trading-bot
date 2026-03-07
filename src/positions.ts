@@ -1,5 +1,6 @@
 import * as fs from 'fs';
 import * as path from 'path';
+import { getOpenPositions as getBybitPositions, OpenPosition as BybitPosition } from './bybit';
 
 export interface OpenPosition {
   symbol: string;
@@ -71,4 +72,34 @@ export function removePosition(symbol: string): void {
  */
 export function getOpenPositions(): OpenPosition[] {
   return loadPositions();
+}
+
+/**
+ * Sync local positions with Bybit — remove closed positions
+ */
+export async function syncWithBybit(): Promise<void> {
+  try {
+    const localPositions = loadPositions();
+    if (localPositions.length === 0) {
+      console.log('No local positions to sync');
+      return;
+    }
+
+    const bybitPositions = await getBybitPositions();
+    const bybitSymbols = new Set(bybitPositions.map(p => p.symbol));
+
+    // Keep only positions that are still open on Bybit
+    const syncedPositions = localPositions.filter(pos => bybitSymbols.has(pos.symbol));
+
+    if (syncedPositions.length !== localPositions.length) {
+      const removed = localPositions.length - syncedPositions.length;
+      console.log(`🧹 Synced: removed ${removed} closed positions`);
+      console.log(`   Kept: ${syncedPositions.map(p => p.symbol).join(', ')}`);
+    }
+
+    savePositions(syncedPositions);
+  } catch (err) {
+    console.error('Failed to sync with Bybit:', err);
+    // Don't throw — keep local positions if Bybit is unavailable
+  }
 }

@@ -14,6 +14,7 @@ import { runStrategy } from './strategy';
 import { sendSignalNotification, sendErrorNotification, sendStartNotification, sendSummaryNotification } from './telegram';
 import { config } from './config';
 import { logger } from './logger';
+import { syncWithBybit } from './positions';
 
 async function main(): Promise<void> {
   const runOnce = process.argv.includes('--once');
@@ -42,6 +43,9 @@ async function runCycle(): Promise<void> {
   logger.info(`\n⏰ Cycle started at ${new Date().toISOString()}`);
 
   try {
+    // Step 0: Sync positions with Bybit (remove closed positions)
+    await syncWithBybit();
+
     // Step 1: Get top pairs by volume
     const topPairs = await getTopPairs(config.strategy.topPairsCount);
     logger.info(`Top pairs fetched: ${topPairs.slice(0, 5).map((p) => p.symbol).join(', ')}...`);

@@ -32,6 +32,14 @@ export interface WalletBalance {
   coin: string;
 }
 
+export interface OpenPosition {
+  symbol: string;
+  side: 'Buy' | 'Sell';
+  qty: number;
+  entryPrice: number;
+  orderId: string;
+}
+
 function signRequest(params: Record<string, string | number>, timestamp: number): string {
   const recvWindow = 5000;
   const queryString = Object.keys(params)
@@ -243,4 +251,46 @@ export async function placeOrder(
     qty: roundedQty,
     price,
   };
+}
+
+/**
+ * Get all open positions from Bybit
+ */
+export async function getOpenPositions(): Promise<OpenPosition[]> {
+  logger.info('Fetching open positions from Bybit...');
+
+  const data = await bybitRequest(
+    'GET',
+    '/v5/position/positions',
+    {
+      category: 'linear',
+      settleCoin: 'USDT',
+    },
+    true
+  ) as {
+    result: {
+      list: Array<{
+        symbol: string;
+        side: string;
+        avgEntryPrice: string;
+        qty: string;
+        orderId: string;
+        isClosed: boolean;
+      }>;
+    };
+  };
+
+  // Filter for open positions (not closed)
+  const openPositions: OpenPosition[] = data.result.list
+    .filter(p => !p.isClosed && parseFloat(p.qty) > 0)
+    .map(p => ({
+      symbol: p.symbol,
+      side: p.side as 'Buy' | 'Sell',
+      qty: parseFloat(p.qty),
+      entryPrice: parseFloat(p.avgEntryPrice),
+      orderId: p.orderId,
+    }));
+
+  logger.info(`Found ${openPositions.length} open positions on Bybit`);
+  return openPositions;
 }
