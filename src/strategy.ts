@@ -2,6 +2,7 @@ import { getCandles, getWalletBalance, placeOrder, TickerInfo } from './bybit';
 import { detectDivergence, DivergenceType } from './indicators';
 import { config, Timeframe } from './config';
 import { logger } from './logger';
+import { hasOpenPosition, addPosition, OpenPosition } from './positions';
 
 export interface TradeSignal {
   symbol: string;
@@ -184,6 +185,12 @@ export async function runStrategy(topPairs: TickerInfo[]): Promise<TradeSignal[]
         `TFs: ${signal.confirmedTimeframes.join(',')} | Strength: ${signal.strength}`
       );
 
+      // Check if position already open for this symbol
+      if (hasOpenPosition(signal.symbol)) {
+        logger.info(`  ⏭️ Skipping ${signal.symbol} — position already open`);
+        continue;
+      }
+
       // Calculate position size
       if (balance) {
         const positionUsd = (balance.totalEquity * config.strategy.positionSizePct) / 100;
@@ -197,6 +204,18 @@ export async function runStrategy(topPairs: TickerInfo[]): Promise<TradeSignal[]
       // Execute trade
       try {
         const executed = await executeTrade(signal);
+        
+        // Save position to tracking file
+        const position: OpenPosition = {
+          symbol: executed.symbol,
+          direction: executed.direction,
+          entryPrice: executed.entryPrice,
+          qty: executed.qty,
+          orderId: executed.orderId!,
+          openedAt: new Date().toISOString(),
+        };
+        addPosition(position);
+        
         signals.push(executed);
         executedSymbols.add(pair.symbol);
         logger.info(`  ✅ Trade executed: ${executed.orderId}`);
