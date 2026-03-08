@@ -32,4 +32,8 @@ export declare function runBacktest(symbol: string, timeframe: Timeframe, daysBa
  * Print backtest results nicely
  */
 export declare function printBacktestResults(symbol: string, result: BacktestResult): void;
+/**
+ * Run full backtest on multiple symbols
+ */
+export declare function runFullBacktest(symbols?: string[], timeframe?: Timeframe, daysBack?: number): Promise<Record<string, BacktestResult>>;
 //# sourceMappingURL=backtest.d.ts.map

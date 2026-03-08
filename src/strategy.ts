@@ -2,8 +2,57 @@ import { getCandles, getWalletBalance, placeOrder, TickerInfo } from './bybit';
 import { detectDivergence, DivergenceType, getTrendDirection, detectMACDDivergence, getMACross, getCurrentATR } from './indicators';
 import { config, Timeframe } from './config';
 import { logger } from './logger';
-import { hasOpenPosition, addPosition, OpenPosition, loadPositions, updatePosition } from './positions';
+import { hasOpenPosition, addPosition, OpenPosition, loadPositions, updatePosition, addMartingaleLayer, shouldAddMartingaleLayer, getPosition } from './positions';
 import { getDailyStats, recordTrade, canTradeToday } from './daily-stats';
+
+/**
+ * Get current price for a symbol (used for trend filter)
+ */
+async function getCurrentPrice(symbol: string): Promise<number | null> {
+  try {
+    const candles = await getCandles(symbol, '15', 1);
+    return candles[candles.length - 1]?.close || null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Check trend filter - returns allowed directions based on BTC/ETH prices
+ */
+async function getAllowedDirections(): Promise<{ long: boolean; short: boolean }> {
+  const result = { long: true, short: true };
+  
+  if (!config.strategy.trendFilterEnabled) {
+    return result;
+  }
+  
+  const btcPrice = await getCurrentPrice('BTCUSDT');
+  const ethPrice = await getCurrentPrice('ETHUSDT');
+  
+  if (btcPrice && btcPrice >= config.strategy.minBtcForLong) {
+    logger.info(`📈 Trend filter: BTC ($${btcPrice.toLocaleString()}) >= $${config.strategy.minBtcForLong.toLocaleString()} → only LONGS`);
+    result.short = false;
+  }
+  
+  if (ethPrice && ethPrice >= config.strategy.minEthForLong) {
+    logger.info(`📈 Trend filter: ETH ($${ethPrice.toLocaleString()}) >= $${config.strategy.minEthForLong.toLocaleString()} → only LONGS`);
+    result.short = false;
+  }
+  
+  if (!result.short) {
+    logger.info(`  🚫 Short trades blocked by trend filter`);
+  }
+  
+  return result;
+}
+
+/**
+ * Check if symbol is a focus pair
+ */
+function isFocusPair(symbol: string): boolean {
+  return config.strategy.focusPairs.includes(symbol as any);
+}
 
 export interface TradeSignal {
   symbol: string;
@@ -118,8 +167,21 @@ async function analyzeSymbol(symbol: string): Promise<TradeSignal | null> {
 
   const strength: 'weak' | 'strong' = confirmedTfs.length >= 3 ? 'strong' : 'weak';
 
-  // Get current price (use last candle close from 15m)
-  const recentCandles = await getCandles(symbol, '15', 1);
+  // Apply trend filter - block shorts if trend is bullish
+  const allowedDirs = await getAllowedDirections();
+  if (!allowedDirs[direction]) {
+    logger.info(`  ${symbol}: ${direction.toUpperCase()} blocked by trend filter`);
+    return null;
+  }
+
+  // Boost strength for focus pairs (+1 level)
+  const finalStrength: 'weak' | 'strong' = isFocusPair(symbol) && strength === 'weak' ? 'strong' : strength;
+  if (isFocusPair(symbol) && finalStrength !== strength) {
+    logger.info(`  ${symbol}: Focus pair boosted strength: ${strength} → ${finalStrength}`);
+  }
+
+  // Get current price and ATR (use last candle close from 15m)
+  const recentCandles = await getCandles(symbol, '15', Math.max(config.strategy.atrPeriod + 10, config.strategy.candlesLookback));
   const currentPrice = recentCandles[recentCandles.length - 1]?.close || 0;
 
   if (!currentPrice) {
@@ -127,24 +189,36 @@ async function analyzeSymbol(symbol: string): Promise<TradeSignal | null> {
     return null;
   }
 
-  // Calculate TP/SL
-  const slPct = config.strategy.stopLossPct / 100;
-  const tpPct = config.strategy.takeProfitPct / 100;
+  // Calculate ATR-based TP/SL
+  const atr = getCurrentATR(recentCandles, config.strategy.atrPeriod);
+  const atrMultiplierSL = config.strategy.atrMultiplierSL;
+  const atrMultiplierTP = config.strategy.atrMultiplierTP;
 
-  const stopLoss =
-    direction === 'long'
-      ? currentPrice * (1 - slPct)
-      : currentPrice * (1 + slPct);
+  const slATR = atr ? atr * atrMultiplierSL : null;
+  const tpATR = atr ? atr * atrMultiplierTP : null;
 
-  const takeProfit =
-    direction === 'long'
-      ? currentPrice * (1 + tpPct)
-      : currentPrice * (1 - tpPct);
+  let stopLoss: number;
+  let takeProfit: number;
+
+  // Use ATR if available, otherwise fall back to percentage-based
+  if (atr && slATR && tpATR) {
+    stopLoss = direction === 'long' ? currentPrice - slATR : currentPrice + slATR;
+    takeProfit = direction === 'long' ? currentPrice + tpATR : currentPrice - tpATR;
+    logger.info(`  📊 Using ATR-based SL/TP: SL=${slATR.toFixed(4)} (${atrMultiplierSL}x), TP=${tpATR.toFixed(4)} (${atrMultiplierTP}x)`);
+  } else {
+    // Fallback to percentage-based if ATR fails
+    logger.warn(`  ⚠️ ATR unavailable, using percentage-based SL/TP`);
+    const slPct = config.strategy.stopLossPct / 100;
+    const tpPct = config.strategy.takeProfitPct / 100;
+
+    stopLoss = direction === 'long' ? currentPrice * (1 - slPct) : currentPrice * (1 + slPct);
+    takeProfit = direction === 'long' ? currentPrice * (1 + tpPct) : currentPrice * (1 - tpPct);
+  }
 
   return {
     symbol,
     direction,
-    strength,
+    strength: finalStrength,
     confirmedTimeframes: confirmedTfs,
     entryPrice: currentPrice,
     stopLoss,
@@ -191,6 +265,101 @@ async function executeTrade(signal: TradeSignal): Promise<TradeSignal> {
 }
 
 /**
+ * Check and update trailing stops for all open positions
+ * Trailing stop activates when profit reaches trailingActivationPct%
+ * Then moves SL on every trailingStepPct% increase in profit
+ * Minimum SL = entry price
+ */
+async function checkTrailingStops(): Promise<void> {
+  const positions = loadPositions();
+  if (positions.length === 0) return;
+
+  const activationPct = config.strategy.trailingActivationPct / 100;
+  const stepPct = config.strategy.trailingStepPct / 100;
+
+  for (const pos of positions) {
+    try {
+      // Get current price
+      const candles = await getCandles(pos.symbol, '15', 1);
+      const currentPrice = candles[0]?.close;
+      if (!currentPrice) continue;
+
+      // Calculate current profit percentage
+      let profitPct: number;
+      if (pos.direction === 'long') {
+        profitPct = (currentPrice - pos.entryPrice) / pos.entryPrice;
+      } else {
+        profitPct = (pos.entryPrice - currentPrice) / pos.entryPrice;
+      }
+
+      // Initialize trailing tracking if not set
+      if (!pos.trailingActivated || pos.highestProfitPct === undefined) {
+        updatePosition(pos.symbol, {
+          trailingActivated: false,
+          highestProfitPct: profitPct,
+          trailingStopLoss: pos.trailingStopLoss || (pos.direction === 'long' 
+            ? pos.entryPrice * (1 - config.strategy.stopLossPct / 100)
+            : pos.entryPrice * (1 + config.strategy.stopLossPct / 100))
+        });
+        continue;
+      }
+
+      // Update highest profit reached
+      if (profitPct > pos.highestProfitPct) {
+        updatePosition(pos.symbol, { highestProfitPct: profitPct });
+      }
+
+      const highestProfit = pos.highestProfitPct;
+
+      // Check if trailing should activate
+      if (!pos.trailingActivated && profitPct >= activationPct) {
+        // Activate trailing stop - move SL to entry price
+        const newSL = pos.entryPrice;
+        updatePosition(pos.symbol, {
+          trailingActivated: true,
+          trailingStopLoss: newSL
+        });
+        logger.info(`  🔒 Trailing stop ACTIVATED for ${pos.symbol}: SL moved to entry ${pos.entryPrice.toFixed(4)}`);
+        continue;
+      }
+
+      // If trailing is active, move SL on each step
+      if (pos.trailingActivated) {
+        // Calculate how many steps we've moved up from activation
+        const profitFromActivation = highestProfit - activationPct;
+        const steps = Math.floor(profitFromActivation / stepPct);
+        
+        // New SL = entry + (steps * stepPct * entry)
+        let newSL: number;
+        if (pos.direction === 'long') {
+          newSL = pos.entryPrice * (1 + steps * stepPct);
+        } else {
+          newSL = pos.entryPrice * (1 - steps * stepPct);
+        }
+
+        // Ensure new SL is higher than current SL and not below entry
+        const minSL = pos.entryPrice;
+        const currentSL = pos.trailingStopLoss || 0;
+        
+        let shouldUpdate = false;
+        if (pos.direction === 'long' && newSL > currentSL && newSL >= minSL) {
+          shouldUpdate = true;
+        } else if (pos.direction === 'short' && newSL < currentSL && newSL <= minSL) {
+          shouldUpdate = true;
+        }
+
+        if (shouldUpdate) {
+          updatePosition(pos.symbol, { trailingStopLoss: newSL });
+          logger.info(`  📈 Trailing stop updated for ${pos.symbol}: SL moved to ${newSL.toFixed(4)} (profit: ${(profitPct * 100).toFixed(2)}%)`);
+        }
+      }
+    } catch (err) {
+      logger.error(`Error checking trailing stop for ${pos.symbol}`, err);
+    }
+  }
+}
+
+/**
  * Main strategy runner — analyzes all top pairs and executes trades
  * Multi-pair mode: analyzes all pairs first, then executes best signals
  */
@@ -204,6 +373,9 @@ export async function runStrategy(topPairs: TickerInfo[]): Promise<TradeSignal[]
     logger.info(`   Daily stats: ${daily.trades} trades, $${daily.profit.toFixed(2)} P/L`);
     return [];
   }
+
+  // Check and update trailing stops for existing positions
+  await checkTrailingStops();
 
   // Load current positions to know available slots
   const openPositions = loadPositions();

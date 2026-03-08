@@ -27,9 +27,23 @@ export declare const config: {
         timeframes: readonly ["15", "60", "240"];
         emaPeriod: number;
         focusPairs: string[];
+        focusPairsEnabled: boolean;
+        otherPairsEnabled: boolean;
+        trendFilterEnabled: boolean;
+        minBtcForLong: number;
+        minEthForLong: number;
         maxConcurrentPositions: number;
         maxTradesPerDay: number;
         maxDailyDrawdownPct: number;
+        atrPeriod: number;
+        atrMultiplierSL: number;
+        atrMultiplierTP: number;
+        trailingActivationPct: number;
+        trailingStepPct: number;
+        martingaleEnabled: boolean;
+        martingaleMultiplier: number;
+        martingaleMaxLayers: number;
+        martingaleStepPct: number;
     };
     logging: {
         level: "debug" | "info" | "warn" | "error";

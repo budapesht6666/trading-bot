@@ -30,11 +30,29 @@ exports.config = {
         timeframes: ['15', '60', '240'], // 15m, 1h, 4h in Bybit format
         emaPeriod: 50, // EMA period for trend filter
         // Focus pairs - приоритетные пары для торговли
-        focusPairs: ['XRPUSDT', 'SOLUSDT', 'ETHUSDT'],
+        focusPairs: ['BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'XRPUSDT', 'BNBUSDT'],
+        focusPairsEnabled: true, // Включить режим фокус-пар
+        otherPairsEnabled: false, // Анализировать только фокус-пары
+        // Trend filter - фильтр тренда
+        trendFilterEnabled: true, // Включить фильтр тренда
+        minBtcForLong: 50000, // BTC > $50000 → только лонги
+        minEthForLong: 2000, // ETH > $2000 → только лонги
         // Multi-pair settings
         maxConcurrentPositions: 3, // Max open positions at once
         maxTradesPerDay: 10, // Max trades per day
         maxDailyDrawdownPct: 5, // Stop trading if drawdown > 5%
+        // ATR-based SL/TP settings
+        atrPeriod: 14, // ATR period for dynamic SL/TP
+        atrMultiplierSL: 2, // ATR multiplier for Stop Loss
+        atrMultiplierTP: 3, // ATR multiplier for Take Profit
+        // Trailing stop settings
+        trailingActivationPct: 3, // Activate trailing stop when profit reaches +3%
+        trailingStepPct: 1, // Move SL on every +1% profit increase
+        // Martingale/Averaging settings
+        martingaleEnabled: true,
+        martingaleMultiplier: 2, // Multiply position size by this factor on each layer
+        martingaleMaxLayers: 2, // Max number of averaging layers
+        martingaleStepPct: 2, // Price drop % to trigger next layer
     },
     logging: {
         level: 'info',

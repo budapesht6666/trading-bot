@@ -1,9 +1,45 @@
 "use strict";
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.runBacktest = runBacktest;
 exports.printBacktestResults = printBacktestResults;
+exports.runFullBacktest = runFullBacktest;
 const indicators_1 = require("./indicators");
 const config_1 = require("./config");
+const fs = __importStar(require("fs"));
+const path = __importStar(require("path"));
 /**
  * Run backtest on a single symbol
  */
@@ -250,5 +286,50 @@ function printBacktestResults(symbol, result) {
     console.log(`-${'-'.repeat(30)}`);
     console.log(`Max Drawdown:     $${result.maxDrawdown.toFixed(2)} (${(result.maxDrawdownPct * 100).toFixed(2)}%)`);
     console.log(`${'='.repeat(50)}\n`);
+}
+/**
+ * Run full backtest on multiple symbols
+ */
+async function runFullBacktest(symbols = ['BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'XRPUSDT'], timeframe = '60', daysBack = 90) {
+    console.log(`\n🚀 Running full backtest on ${symbols.length} symbols...`);
+    console.log(`   Timeframe: ${timeframe}m | Days: ${daysBack}\n`);
+    const results = {};
+    for (const symbol of symbols) {
+        try {
+            const result = await runBacktest(symbol, timeframe, daysBack);
+            results[symbol] = result;
+            printBacktestResults(symbol, result);
+        }
+        catch (error) {
+            console.error(`❌ Error backtesting ${symbol}:`, error);
+            results[symbol] = createEmptyResult();
+        }
+    }
+    // Save results to JSON file
+    const outputPath = path.join(process.cwd(), 'backtest-results.json');
+    const jsonOutput = {
+        timestamp: new Date().toISOString(),
+        config: {
+            symbols,
+            timeframe,
+            daysBack,
+        },
+        results: Object.fromEntries(Object.entries(results).map(([symbol, result]) => [
+            symbol,
+            {
+                totalTrades: result.totalTrades,
+                winningTrades: result.winningTrades,
+                losingTrades: result.losingTrades,
+                winRate: result.winRate,
+                netProfit: result.netProfit,
+                maxDrawdownPct: result.maxDrawdownPct,
+                avgWin: result.avgWin,
+                avgLoss: result.avgLoss,
+            },
+        ])),
+    };
+    fs.writeFileSync(outputPath, JSON.stringify(jsonOutput, null, 2));
+    console.log(`\n📁 Results saved to ${outputPath}`);
+    return results;
 }
 //# sourceMappingURL=backtest.js.map

@@ -1,5 +1,10 @@
 import { Candle } from './bybit';
 /**
+ * Calculate Average True Range (ATR) indicator
+ * ATR measures market volatility
+ */
+export declare function getATR(candles: Candle[], period?: number): number[];
+/**
  * Calculate Exponential Moving Average
  */
 export declare function calculateEMA(candles: Candle[], period: number): number[];
@@ -41,6 +46,11 @@ export declare function getMACross(candles: Candle[]): MACDCrossType;
  * Price makes higher high + MACD makes lower high = bearish
  */
 export declare function detectMACDDivergence(candles: Candle[]): DivergenceResult;
+/**
+ * Calculate Average True Range (ATR)
+ * Uses Wilder's smoothing method
+ */
+export declare function calculateATR(candles: Candle[], period?: number): number[];
 /**
  * Detect RSI divergence on given candles
  * Returns null if no divergence found, 'bullish' or 'bearish' otherwise
