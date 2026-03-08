@@ -105,8 +105,9 @@ async function bybitRequest(method, endpoint, params = {}, needsAuth = false) {
         if (result.stderr && result.stderr.length > 0) {
             logger_1.logger.warn(`SSH stderr: ${result.stderr}`);
         }
-        if (!result.stdout) {
-            throw new Error('Empty response from SSH');
+        if (!result.stdout || result.stdout.trim() === '') {
+            logger_1.logger.warn('Empty response from SSH - returning empty result');
+            return { result: { list: [] } };
         }
         const data = JSON.parse(result.stdout);
         if (data.retCode !== undefined && data.retCode !== 0) {

@@ -1,18 +1,1 @@
-[
-  {
-    "symbol": "FARTCOINUSDT",
-    "direction": "long",
-    "entryPrice": 0.15017,
-    "qty": 20341.703758047548,
-    "orderId": "e48acffc-e573-4153-a799-a639d3550a74",
-    "openedAt": "2026-03-07T18:30:55.730Z"
-  },
-  {
-    "symbol": "BNBUSDT",
-    "direction": "long",
-    "entryPrice": 621.9,
-    "qty": 4.9119048936259855,
-    "orderId": "176ccaec-ceaf-43dd-bba1-cb3a15381d7c",
-    "openedAt": "2026-03-07T18:31:31.802Z"
-  }
-]
+[]
