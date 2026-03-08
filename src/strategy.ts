@@ -464,9 +464,12 @@ export async function runStrategy(topPairs: TickerInfo[]): Promise<TradeSignal[]
           symbol: executed.symbol,
           direction: executed.direction,
           entryPrice: executed.entryPrice,
+          avgPrice: executed.entryPrice,
           qty: executed.qty,
+          totalQty: executed.qty,
           orderId: executed.orderId!,
           openedAt: new Date().toISOString(),
+          martingaleLayers: 0,
         };
         addPosition(position);
         

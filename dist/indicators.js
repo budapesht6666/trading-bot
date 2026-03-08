@@ -9,7 +9,6 @@ exports.calculateMACD = calculateMACD;
 exports.getMACross = getMACross;
 exports.detectMACDDivergence = detectMACDDivergence;
 exports.calculateATR = calculateATR;
-exports.getCurrentATR = getCurrentATR;
 exports.detectDivergence = detectDivergence;
 /**
  * Calculate Average True Range (ATR) indicator
@@ -412,16 +411,6 @@ function calculateATR(candles, period = 14) {
         atr.push(avgRange);
     }
     return atr;
-}
-/**
- * Get current ATR value
- */
-function getCurrentATR(candles, period = 14) {
-    const atr = calculateATR(candles, period);
-    const validAtr = atr.filter(v => !isNaN(v));
-    if (validAtr.length === 0)
-        return null;
-    return validAtr[validAtr.length - 1];
 }
 /**
  * Detect RSI divergence on given candles

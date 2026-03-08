@@ -504,16 +504,6 @@ export function calculateATR(candles: Candle[], period: number = 14): number[] {
 }
 
 /**
- * Get current ATR value
- */
-export function getCurrentATR(candles: Candle[], period: number = 14): number | null {
-  const atr = calculateATR(candles, period);
-  const validAtr = atr.filter(v => !isNaN(v));
-  if (validAtr.length === 0) return null;
-  return validAtr[validAtr.length - 1];
-}
-
-/**
  * Detect RSI divergence on given candles
  * Returns null if no divergence found, 'bullish' or 'bearish' otherwise
  */

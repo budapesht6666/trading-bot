@@ -166,7 +166,7 @@ async function analyzeSymbol(symbol) {
     return {
         symbol,
         direction,
-        strength,
+        strength: finalStrength,
         confirmedTimeframes: confirmedTfs,
         entryPrice: currentPrice,
         stopLoss,
@@ -372,9 +372,12 @@ async function runStrategy(topPairs) {
                     symbol: executed.symbol,
                     direction: executed.direction,
                     entryPrice: executed.entryPrice,
+                    avgPrice: executed.entryPrice,
                     qty: executed.qty,
+                    totalQty: executed.qty,
                     orderId: executed.orderId,
                     openedAt: new Date().toISOString(),
+                    martingaleLayers: 0,
                 };
                 (0, positions_1.addPosition)(position);
                 // Record trade in daily stats

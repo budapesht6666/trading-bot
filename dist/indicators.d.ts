@@ -5,6 +5,10 @@ import { Candle } from './bybit';
  */
 export declare function getATR(candles: Candle[], period?: number): number[];
 /**
+ * Get the current ATR value from the most recent candles
+ */
+export declare function getCurrentATR(candles: Candle[], period?: number): number | null;
+/**
  * Calculate Exponential Moving Average
  */
 export declare function calculateEMA(candles: Candle[], period: number): number[];
