@@ -24,6 +24,33 @@ npm start
 npm run dev -- --once
 ```
 
+## Бэктестинг
+
+```bash
+# Собрать проект
+npm run build
+
+# Бэктест одной пары (по умолчанию 90 дней, 1h)
+npm run backtest:single
+
+# С указанием параметров
+node dist/backtest-runner.js --symbol ETHUSDT --days 60 --timeframe 60
+
+# Полный бэктест на нескольких парах
+npm run backtest:full
+```
+
+### Параметры backtest-runner
+
+| Параметр | Описание | По умолчанию |
+|----------|----------|--------------|
+| `--symbol` | Торговая пара (напр. BTCUSDT) | - |
+| `--days` | Количество дней для анализа | 90 |
+| `--timeframe` | Таймфрейм (15, 60, 240) | 60 |
+| `--full` | Запустить на всех парах | false |
+
+Результаты сохраняются в `backtest-results.json`.
+
 ## Cron (рекомендуется)
 
 ```cron

@@ -7,7 +7,9 @@
     "build": "tsc",
     "start": "node dist/index.js",
     "dev": "ts-node src/index.ts",
-    "run-once": "ts-node src/index.ts --once"
+    "run-once": "ts-node src/index.ts --once",
+    "backtest:single": "node dist/backtest-runner.js --symbol BTCUSDT",
+    "backtest:full": "node dist/backtest-runner.js --full"
   },
   "dependencies": {
     "axios": "^1.13.6",

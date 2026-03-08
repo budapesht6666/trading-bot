@@ -1,8 +1,8 @@
 import { getCandles, getWalletBalance, placeOrder, TickerInfo } from './bybit';
-import { detectDivergence, DivergenceType, getTrendDirection, detectMACDDivergence, getMACross } from './indicators';
+import { detectDivergence, DivergenceType, getTrendDirection, detectMACDDivergence, getMACross, getCurrentATR } from './indicators';
 import { config, Timeframe } from './config';
 import { logger } from './logger';
-import { hasOpenPosition, addPosition, OpenPosition, loadPositions } from './positions';
+import { hasOpenPosition, addPosition, OpenPosition, loadPositions, updatePosition } from './positions';
 import { getDailyStats, recordTrade, canTradeToday } from './daily-stats';
 
 export interface TradeSignal {

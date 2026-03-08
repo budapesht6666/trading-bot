@@ -1,6 +1,79 @@
 import { Candle } from './bybit';
 
 /**
+ * Calculate Average True Range (ATR) indicator
+ * ATR measures market volatility
+ */
+export function getATR(candles: Candle[], period: number = 14): number[] {
+  if (candles.length < period + 1) {
+    return [];
+  }
+
+  const atr: number[] = [];
+
+  // Calculate True Range for each candle
+  // TR = max(High - Low, |High - Previous Close|, |Low - Previous Close|)
+  const trueRanges: number[] = [];
+
+  for (let i = 0; i < candles.length; i++) {
+    if (i === 0) {
+      // First candle: TR = High - Low
+      trueRanges.push(candles[i].high - candles[i].low);
+      atr.push(NaN); // Not enough data yet
+    } else {
+      const high = candles[i].high;
+      const low = candles[i].low;
+      const prevClose = candles[i - 1].close;
+
+      const tr = Math.max(
+        high - low,
+        Math.abs(high - prevClose),
+        Math.abs(low - prevClose)
+      );
+      trueRanges.push(tr);
+    }
+  }
+
+  // First ATR is Simple Moving Average of first 'period' TR values
+  if (candles.length >= period) {
+    let sum = 0;
+    for (let i = 1; i <= period; i++) {
+      sum += trueRanges[i];
+    }
+    const firstATR = sum / period;
+
+    // Pad with NaN for the first 'period' values
+    for (let i = 0; i < period; i++) {
+      atr[i] = NaN;
+    }
+    atr[period] = firstATR;
+
+    // Subsequent ATR values use Wilder's smoothing method
+    // ATR = ((Prior ATR * (period - 1)) + Current TR) / period
+    for (let i = period + 1; i < candles.length; i++) {
+      const currentATR = ((atr[i - 1] * (period - 1)) + trueRanges[i]) / period;
+      atr.push(currentATR);
+    }
+  }
+
+  return atr;
+}
+
+/**
+ * Get the current ATR value from the most recent candles
+ */
+export function getCurrentATR(candles: Candle[], period: number = 14): number | null {
+  const atrValues = getATR(candles, period);
+  const validValues = atrValues.filter(v => !isNaN(v));
+  
+  if (validValues.length === 0) {
+    return null;
+  }
+  
+  return validValues[validValues.length - 1];
+}
+
+/**
  * Calculate Exponential Moving Average
  */
 export function calculateEMA(candles: Candle[], period: number): number[] {
@@ -383,6 +456,61 @@ function findLocalMaxima(arr: number[], lookback = 5): number[] {
     }
   }
   return maxima;
+}
+
+/**
+ * Calculate Average True Range (ATR)
+ * Uses Wilder's smoothing method
+ */
+export function calculateATR(candles: Candle[], period: number = 14): number[] {
+  if (candles.length < period + 1) {
+    return [];
+  }
+
+  const atr: number[] = [];
+
+  // Calculate True Range for each candle
+  const trueRanges: number[] = [];
+  for (let i = 1; i < candles.length; i++) {
+    const high = candles[i].high;
+    const low = candles[i].low;
+    const prevClose = candles[i - 1].close;
+
+    const tr = Math.max(
+      high - low,
+      Math.abs(high - prevClose),
+      Math.abs(low - prevClose)
+    );
+    trueRanges.push(tr);
+  }
+
+  // First ATR is SMA of first 'period' true ranges
+  let sum = 0;
+  for (let i = 0; i < period; i++) {
+    sum += trueRanges[i];
+    atr.push(NaN); // Pad before we have enough data
+  }
+
+  let avgRange = sum / period;
+  atr.push(avgRange);
+
+  // Wilder's smoothing for remaining values
+  for (let i = period; i < trueRanges.length; i++) {
+    avgRange = (avgRange * (period - 1) + trueRanges[i]) / period;
+    atr.push(avgRange);
+  }
+
+  return atr;
+}
+
+/**
+ * Get current ATR value
+ */
+export function getCurrentATR(candles: Candle[], period: number = 14): number | null {
+  const atr = calculateATR(candles, period);
+  const validAtr = atr.filter(v => !isNaN(v));
+  if (validAtr.length === 0) return null;
+  return validAtr[validAtr.length - 1];
 }
 
 /**

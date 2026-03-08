@@ -37,6 +37,15 @@ export const config = {
     maxConcurrentPositions: 3,  // Max open positions at once
     maxTradesPerDay: 10,        // Max trades per day
     maxDailyDrawdownPct: 5,     // Stop trading if drawdown > 5%
+
+    // ATR-based SL/TP settings
+    atrPeriod: 14,              // ATR period for dynamic SL/TP
+    atrMultiplierSL: 2,         // ATR multiplier for Stop Loss
+    atrMultiplierTP: 3,         // ATR multiplier for Take Profit
+
+    // Trailing stop settings
+    trailingActivationPct: 3,   // Activate trailing stop when profit reaches +3%
+    trailingStepPct: 1,         // Move SL on every +1% profit increase
   },
 
   logging: {

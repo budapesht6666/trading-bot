@@ -1,6 +1,8 @@
 import { getCandles, Candle } from './bybit';
 import { detectDivergence, DivergenceType, getTrendDirection, detectMACDDivergence, getMACross } from './indicators';
 import { config, Timeframe } from './config';
+import * as fs from 'fs';
+import * as path from 'path';
 
 export interface BacktestResult {
   totalTrades: number;
@@ -327,4 +329,60 @@ export function printBacktestResults(symbol: string, result: BacktestResult): vo
   console.log(`-${'-'.repeat(30)}`);
   console.log(`Max Drawdown:     $${result.maxDrawdown.toFixed(2)} (${(result.maxDrawdownPct * 100).toFixed(2)}%)`);
   console.log(`${'='.repeat(50)}\n`);
+}
+
+/**
+ * Run full backtest on multiple symbols
+ */
+export async function runFullBacktest(
+  symbols: string[] = ['BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'XRPUSDT'],
+  timeframe: Timeframe = '60',
+  daysBack: number = 90
+): Promise<Record<string, BacktestResult>> {
+  console.log(`\n🚀 Running full backtest on ${symbols.length} symbols...`);
+  console.log(`   Timeframe: ${timeframe}m | Days: ${daysBack}\n`);
+
+  const results: Record<string, BacktestResult> = {};
+
+  for (const symbol of symbols) {
+    try {
+      const result = await runBacktest(symbol, timeframe, daysBack);
+      results[symbol] = result;
+      printBacktestResults(symbol, result);
+    } catch (error) {
+      console.error(`❌ Error backtesting ${symbol}:`, error);
+      results[symbol] = createEmptyResult();
+    }
+  }
+
+  // Save results to JSON file
+  const outputPath = path.join(process.cwd(), 'backtest-results.json');
+  const jsonOutput = {
+    timestamp: new Date().toISOString(),
+    config: {
+      symbols,
+      timeframe,
+      daysBack,
+    },
+    results: Object.fromEntries(
+      Object.entries(results).map(([symbol, result]) => [
+        symbol,
+        {
+          totalTrades: result.totalTrades,
+          winningTrades: result.winningTrades,
+          losingTrades: result.losingTrades,
+          winRate: result.winRate,
+          netProfit: result.netProfit,
+          maxDrawdownPct: result.maxDrawdownPct,
+          avgWin: result.avgWin,
+          avgLoss: result.avgLoss,
+        },
+      ])
+    ),
+  };
+
+  fs.writeFileSync(outputPath, JSON.stringify(jsonOutput, null, 2));
+  console.log(`\n📁 Results saved to ${outputPath}`);
+
+  return results;
 }
